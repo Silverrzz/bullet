@@ -50,8 +50,8 @@ fn main() {
     let data_path_refs = data_paths.iter().map(String::as_str).collect::<Vec<_>>();
 
     let initial_lr = env_value("SHARD_INITIAL_LR", 0.001_f32);
-    let final_lr = env_value("SHARD_FINAL_LR", initial_lr * 0.3_f32.powi(5));
-    let superbatches = env_value("SHARD_SUPERBATCHES", 640_usize);
+    let final_lr = env_value("SHARD_FINAL_LR", 0.000025_f32);
+    let superbatches = env_value("SHARD_SUPERBATCHES", 25_usize);
     let threads = env_value("SHARD_THREADS", 4_usize);
     let buffer_size_mb = env_value("SHARD_BUFFER_SIZE_MB", 1024_usize);
     let output_directory = env::var("SHARD_OUTPUT_DIR").unwrap_or_else(|_| "checkpoints".to_string());
@@ -105,7 +105,10 @@ fn main() {
             start_superbatch: 1,
             end_superbatch: superbatches,
         },
-        wdl_scheduler: wdl::ConstantWDL { value: env_value("SHARD_WDL", 0.75_f32) },
+        wdl_scheduler: wdl::LinearWDL {
+            start: env_value("SHARD_WDL_START", 0.1_f32),
+            end: env_value("SHARD_WDL_END", 0.7_f32),
+        },
         lr_scheduler: lr::CosineDecayLR { initial_lr, final_lr, final_superbatch: superbatches },
         save_rate: env_value("SHARD_SAVE_RATE", 10_usize),
     };
@@ -129,7 +132,7 @@ fn main() {
 
 fn collect_data_paths() -> Vec<String> {
     let roots = env::args_os().skip(1).map(PathBuf::from).collect::<Vec<_>>();
-    assert!(!roots.is_empty(), "pass one or more Viriformat .binpack files or directories after `--`");
+    assert!(!roots.is_empty(), "pass one or more Viriformat .vf/.binpack files or directories after `--`");
 
     let mut paths = Vec::new();
     for root in roots {
@@ -139,7 +142,7 @@ fn collect_data_paths() -> Vec<String> {
 
     paths.sort();
     paths.dedup();
-    assert!(!paths.is_empty(), "no Viriformat .binpack files were found");
+    assert!(!paths.is_empty(), "no Viriformat .vf/.binpack files were found");
 
     println!("Using {} Viriformat file(s):", paths.len());
     for path in &paths {
@@ -159,7 +162,7 @@ fn collect_data_paths() -> Vec<String> {
 fn collect_data_path(path: &Path, explicit: bool, paths: &mut Vec<PathBuf>) -> io::Result<()> {
     let metadata = fs::metadata(path)?;
     if metadata.is_file() {
-        if explicit || is_binpack(path) {
+        if explicit || is_viriformat(path) {
             paths.push(path.to_path_buf());
         }
         return Ok(());
@@ -176,8 +179,9 @@ fn collect_data_path(path: &Path, explicit: bool, paths: &mut Vec<PathBuf>) -> i
     Ok(())
 }
 
-fn is_binpack(path: &Path) -> bool {
-    path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("binpack"))
+fn is_viriformat(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("vf") || extension.eq_ignore_ascii_case("binpack"))
 }
 
 fn env_value<T>(name: &str, default: T) -> T
