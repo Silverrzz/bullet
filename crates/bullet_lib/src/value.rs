@@ -44,6 +44,7 @@ pub struct ValueTrainerState<Inp: SparseInputType, Out> {
     saved_format: Vec<SavedFormat>,
     use_win_rate_model: bool,
     wdl: bool,
+    auxiliary_wdl: bool,
 }
 
 impl<I, O> ValueTrainerState<I, O>
@@ -59,6 +60,7 @@ where
         let out = self.output_getter;
         let wget = self.weight_getter;
         let target_wdl = self.wdl;
+        let auxiliary_wdl = self.auxiliary_wdl;
         let blend_getter = self.blend_getter;
         let use_win_rate_model = self.use_win_rate_model;
         let rscale = 1.0 / scale;
@@ -71,7 +73,19 @@ where
             .add_sparse("stm", (num, 1), nnz)
             .add_sparse("nstm", (num, 1), nnz)
             .add_sparse("buckets", (1, 1), 1)
-            .add_dense("targets", (if target_wdl { 3 } else { 1 }, 1))
+            .add_dense(
+                "targets",
+                (
+                    if target_wdl {
+                        3
+                    } else if auxiliary_wdl {
+                        4
+                    } else {
+                        1
+                    },
+                    1,
+                ),
+            )
             .add_dense("entry_weights", (1, 1));
 
         ModelInputsMapper::build(&inputs, move |pos, step, ((((stm, ntm), buckets), targets), weights)| {
@@ -93,12 +107,14 @@ where
             buckets[0] = i32::from(out.bucket(pos));
             weights[0] = wget.map_or(1.0, |w| w(pos));
 
+            let result_idx = usize::from(pos.result() as u8);
+
             if target_wdl {
                 for target in targets.iter_mut() {
                     *target = 0.0;
                 }
 
-                targets[usize::from(pos.result() as u8)] = 1.0;
+                targets[result_idx] = 1.0;
             } else {
                 let score = f32::from(pos.score());
                 let score = if use_win_rate_model {
@@ -109,10 +125,15 @@ where
                     sigmoid(rscale * score)
                 };
 
-                let result = f32::from(pos.result() as u8) / 2.0;
+                let result = result_idx as f32 / 2.0;
                 let blend = blend_getter(pos, wdl.blend(step.batch(), step.superbatch(), step.final_superbatch()));
                 assert!((0.0..=1.0).contains(&blend), "WDL proportion must be in [0, 1]");
                 targets[0] = blend * result + (1. - blend) * score;
+
+                if auxiliary_wdl {
+                    targets[1..].fill(0.0);
+                    targets[1 + result_idx] = 1.0;
+                }
             }
         })
     }

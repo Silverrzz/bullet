@@ -28,6 +28,7 @@ pub struct ValueTrainerBuilder<O, I: SparseInputType, P, Out> {
     weight_getter: Option<Wgt<I>>,
     loss_fn: Option<LossFn>,
     wdl_output: bool,
+    auxiliary_wdl: bool,
     use_win_rate_model: bool,
     seed: u64,
     device: i32,
@@ -48,6 +49,7 @@ where
             weight_getter: None,
             loss_fn: None,
             wdl_output: false,
+            auxiliary_wdl: false,
             use_win_rate_model: false,
             seed: 198273612,
             device: 0,
@@ -73,7 +75,16 @@ where
     }
 
     pub fn wdl_output(mut self) -> Self {
+        assert!(!self.auxiliary_wdl, "Can't combine WDL output with auxiliary WDL targets!");
         self.wdl_output = true;
+        self
+    }
+
+    /// Appends one-hot `[loss, draw, win]` labels to the scalar value target passed to `build_custom`.
+    /// The resulting target layout is `[value, loss, draw, win]`.
+    pub fn auxiliary_wdl(mut self) -> Self {
+        assert!(!self.wdl_output, "Can't combine auxiliary WDL targets with WDL output!");
+        self.auxiliary_wdl = true;
         self
     }
 
@@ -130,7 +141,13 @@ where
 
         let builder = ModelBuilder::default();
 
-        let output_size = if self.wdl_output { 3 } else { 1 };
+        let output_size = if self.wdl_output {
+            3
+        } else if self.auxiliary_wdl {
+            4
+        } else {
+            1
+        };
         let targets = builder.new_dense_input("targets", (output_size, 1));
         let (out, mut loss) = f(inputs, nnz, targets, &builder);
 
@@ -154,6 +171,7 @@ where
                 weight_getter: self.weight_getter,
                 use_win_rate_model: self.use_win_rate_model,
                 wdl: self.wdl_output,
+                auxiliary_wdl: self.auxiliary_wdl,
                 saved_format,
             },
             evaluator: None,
@@ -237,6 +255,7 @@ where
             weight_getter: self.weight_getter,
             loss_fn: self.loss_fn,
             wdl_output: self.wdl_output,
+            auxiliary_wdl: self.auxiliary_wdl,
             use_win_rate_model: self.use_win_rate_model,
             seed: self.seed,
             device: self.device,
@@ -265,6 +284,7 @@ where
             weight_getter: self.weight_getter,
             loss_fn: self.loss_fn,
             wdl_output: self.wdl_output,
+            auxiliary_wdl: self.auxiliary_wdl,
             use_win_rate_model: self.use_win_rate_model,
             seed: self.seed,
             device: self.device,

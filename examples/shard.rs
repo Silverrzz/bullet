@@ -5,10 +5,7 @@ use std::{
 };
 
 use bullet_lib::{
-    game::{
-        inputs::{ChessBucketsMirrored, get_num_buckets},
-        outputs::MaterialCount,
-    },
+    game::inputs::{ChessBucketsMirrored, get_num_buckets},
     nn::{
         InitSettings, Shape,
         optimiser::{AdamW, AdamWParams},
@@ -25,7 +22,6 @@ use bullet_lib::{
 };
 
 const HIDDEN_SIZE: usize = 768;
-const NUM_OUTPUT_BUCKETS: usize = 8;
 const QA: i16 = 255;
 const QB: i16 = 64;
 const EVAL_SCALE: i32 = 400;
@@ -60,7 +56,7 @@ fn main() {
         .dual_perspective()
         .optimiser(AdamW)
         .inputs(ChessBucketsMirrored::new(BUCKET_LAYOUT))
-        .output_buckets(MaterialCount::<NUM_OUTPUT_BUCKETS>)
+        .auxiliary_wdl()
         .save_format(&[
             // Merge the training-only PSQT factoriser into the feature weights.
             SavedFormat::id("l0w")
@@ -71,23 +67,41 @@ fn main() {
                 .round()
                 .quantise::<i16>(QA),
             SavedFormat::id("l0b").round().quantise::<i16>(QA),
-            // Output-bucket weights are transposed for efficient CPU inference.
+            // Output weights are transposed for efficient CPU inference.
             SavedFormat::id("l1w").transpose().round().quantise::<i16>(QB),
             SavedFormat::id("l1b").round().quantise::<i16>(QA * QB),
         ])
-        .loss_fn(|output, target| output.sigmoid().squared_error(target))
-        .build(|builder, stm_inputs, ntm_inputs, output_buckets| {
+        .build_custom(|builder, (stm_inputs, ntm_inputs), targets| {
             let l0f = builder.new_weights("l0f", Shape::new(HIDDEN_SIZE, 768), InitSettings::Zeroed);
             let expanded_factoriser = l0f.repeat(NUM_INPUT_BUCKETS);
 
             let mut l0 = builder.new_affine("l0", NUM_INPUTS, HIDDEN_SIZE);
             l0.weights = l0.weights + expanded_factoriser;
 
-            let l1 = builder.new_affine("l1", 2 * HIDDEN_SIZE, NUM_OUTPUT_BUCKETS);
+            let l1 = builder.new_affine("l1", 2 * HIDDEN_SIZE, 5);
 
             let stm_hidden = l0.forward(stm_inputs).screlu();
             let ntm_hidden = l0.forward(ntm_inputs).screlu();
-            l1.forward(stm_hidden.concat(ntm_hidden)).select(output_buckets)
+            let hidden = stm_hidden.concat(ntm_hidden);
+            // Export [value logit, predicted value MSE, win logit, draw logit, loss logit].
+            // Convert the final three logits to permille probabilities with 1000 * softmax(W, D, L).
+            let output = l1.forward(hidden);
+            let value = output.slice_rows(0, 1);
+            let uncertainty = output.slice_rows(1, 2);
+            let wdl_logits = output.slice_rows(2, 5);
+
+            let value_target = targets.slice_rows(0, 1);
+            let win_target = targets.slice_rows(3, 4);
+            let draw_target = targets.slice_rows(2, 3);
+            let loss_target = targets.slice_rows(1, 2);
+            let wdl_target = win_target.concat(draw_target).concat(loss_target);
+
+            let mse = value.sigmoid().squared_error(value_target);
+            let uncertainty_loss = uncertainty.squared_error(mse);
+            let wdl_loss = wdl_logits.softmax_crossentropy_loss(wdl_target).reduce_sum_rows();
+            let loss = mse + uncertainty_loss + 0.1 * wdl_loss;
+
+            (output, loss)
         });
 
     // Each first-layer value saved for inference is the sum of l0w and l0f.
