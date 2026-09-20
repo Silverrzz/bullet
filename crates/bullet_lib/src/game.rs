@@ -11,4 +11,5 @@ pub mod formats {
     pub use montyformat;
     pub use sfbinpack;
     pub use viriformat;
+    pub use wakformat;
 }
