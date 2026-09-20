@@ -18,12 +18,19 @@ const QA: i16 = 255;
 const QB: i16 = 64;
 
 fn main() {
-    let mut paths: Vec<String> = std::env::args().skip(1).collect();
-    let no_duck = paths.first().is_some_and(|arg| arg == "--no-duck");
-    if no_duck {
-        paths.remove(0);
+    let mut args = std::env::args().skip(1);
+    let mut paths = Vec::new();
+    let mut no_duck = false;
+    let mut net_id = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--no-duck" => no_duck = true,
+            "--name" => net_id = Some(args.next().filter(|name| !name.is_empty() && !name.starts_with("--"))
+                .expect("--name requires a network name")),
+            _ => paths.push(arg),
+        }
     }
-    assert!(!paths.is_empty(), "Usage: wakwak [--no-duck] <data.wf> [more-data.wf ...]");
+    assert!(!paths.is_empty(), "Usage: wakwak [--no-duck] [--name NAME] <data.wf> [more-data.wf ...]");
     let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
     let inputs = WakwakInputs { duck: !no_duck };
     let loader = WakFormatLoader::new_concat_multiple(&paths, 1024, 4, |_, _, _, _| true);
@@ -47,7 +54,9 @@ fn main() {
         });
 
     let schedule = TrainingSchedule {
-        net_id: if no_duck { format!("chess768-{HIDDEN_SIZE}") } else { format!("duckchess-832x{HIDDEN_SIZE}") },
+        net_id: net_id.unwrap_or_else(|| {
+            if no_duck { format!("chess768-{HIDDEN_SIZE}") } else { format!("duckchess-832x{HIDDEN_SIZE}") }
+        }),
         eval_scale: SCALE,
         steps: TrainingSteps {
             batch_size: 16_384,
