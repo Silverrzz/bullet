@@ -19,6 +19,7 @@ oorandom = "11.1.5"
 rand = "0.9.0"
 sfbinpack = "0.6.4"
 viriformat = "2.0.1"
+wakformat = { git = "https://github.com/Silverrzz/wakformat", rev = "50f99df368b3753b74b2dfbd9d38822d8cd5118f", default-features = false, features = ["bulletformat"] }
 
 [features]
 cuda = ["bullet-gpu/cuda", "bullet-trainer/cuda"]
@@ -60,3 +61,7 @@ path = "../../examples/progression/4_multi_layer.rs"
 [[example]]
 name = "advanced"
 path = "../../examples/advanced/main.rs"
+
+[[example]]
+name = "wakwak"
+path = "../../examples/wakwak.rs"

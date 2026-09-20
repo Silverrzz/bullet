@@ -4,12 +4,14 @@ mod rng;
 pub mod sfbinpack;
 mod text;
 pub mod viribinpack;
+mod wakformat;
 
 pub use direct::{CanBeDirectlySequentiallyLoaded, DirectSequentialDataLoader};
 pub use montybinpack::MontyBinpackLoader;
 pub use sfbinpack::SfBinpackLoader;
 pub use text::InMemoryTextLoader;
 pub use viribinpack::{ViriBinpackLoader, ViriFilter};
+pub use wakformat::WakFormatLoader;
 
 use bulletformat::BulletFormat;
 
