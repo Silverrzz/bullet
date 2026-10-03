@@ -10,9 +10,9 @@ use bullet_lib::{
     value::{ValueTrainerBuilder, loader::WakFormatLoader},
 };
 
-const HIDDEN_SIZE: usize = 768;
-const L1_SIZE: usize = 16;
-const L2_SIZE: usize = 32;
+const L1_SIZE: usize = 768;
+const L2_SIZE: usize = 16;
+const L3_SIZE: usize = 32;
 const SCALE: f32 = 300.0;
 const Q0: i16 = 255;
 const Q1: i16 = 128;
@@ -61,8 +61,13 @@ fn main() {
     let mut net_id = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--name" => net_id = Some(args.next().filter(|name| !name.is_empty() && !name.starts_with("--"))
-                .expect("--name requires a network name")),
+            "--name" => {
+                net_id = Some(
+                    args.next()
+                        .filter(|name| !name.is_empty() && !name.starts_with("--"))
+                        .expect("--name requires a network name"),
+                )
+            }
             _ if arg.starts_with("--") => panic!("Unknown option: {arg}"),
             _ => paths.push(arg),
         }
@@ -95,34 +100,44 @@ fn main() {
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs| {
-            let l0 = builder.new_affine("l0", inputs.num_inputs(), HIDDEN_SIZE);
-            let l1 = builder.new_affine("l1", HIDDEN_SIZE, L1_SIZE);
-            let l2 = builder.new_affine("l2", L1_SIZE, L2_SIZE);
-            let l3 = builder.new_affine("l3", L2_SIZE, 1);
+            let l0 = builder.new_affine("l0", inputs.num_inputs(), L1_SIZE);
+            let l1 = builder.new_affine("l1", L1_SIZE, L2_SIZE);
+            let l2 = builder.new_affine("l2", L2_SIZE, L3_SIZE);
+            let l3 = builder.new_affine("l3", L3_SIZE, 1);
+
             let ft = |input, start, end| l0.slice(start, end).forward(input).crelu();
-            let stm_hidden = ft(stm_inputs, 0, HIDDEN_SIZE / 2) * ft(stm_inputs, HIDDEN_SIZE / 2, HIDDEN_SIZE);
-            let ntm_hidden = ft(ntm_inputs, 0, HIDDEN_SIZE / 2) * ft(ntm_inputs, HIDDEN_SIZE / 2, HIDDEN_SIZE);
-            let hidden = l1.forward(stm_hidden.concat(ntm_hidden)).screlu();
-            let hidden = l2.forward(hidden).crelu();
-            l3.forward(hidden)
+            let stm_hidden = ft(stm_inputs, 0, L1_SIZE / 2) * ft(stm_inputs, L1_SIZE / 2, L1_SIZE);
+            let ntm_hidden = ft(ntm_inputs, 0, L1_SIZE / 2) * ft(ntm_inputs, L1_SIZE / 2, L1_SIZE);
+
+            let l1_out = l1.forward(stm_hidden.concat(ntm_hidden));
+            let l1_out = l1_out.screlu();
+
+            let l2_out = l2.forward(l1_out);
+            let l2_out = l2_out.crelu();
+
+            let l3_out = l3.forward(l2_out);
+
+            l3_out
         });
 
     let l1_clip = AdamWParams { max_weight: L1_RANGE, min_weight: -L1_RANGE, ..Default::default() };
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
 
+    let sbs = 240;
+
     let schedule = TrainingSchedule {
-        net_id: net_id.unwrap_or_else(|| "barbari".to_string()),
+        net_id: net_id.unwrap_or_else(|| "lavash".to_string()),
         eval_scale: SCALE,
         steps: TrainingSteps {
             batch_size: 16_384,
             batches_per_superbatch: 6104,
             start_superbatch: 1,
-            end_superbatch: 240,
+            end_superbatch: sbs,
         },
         wdl_scheduler: wdl::ConstantWDL { value: 0.3 },
         lr_scheduler: lr::Sequence {
             first: lr::ConstantLR { value: 0.001 },
-            second: lr::LinearDecayLR { initial_lr: 0.001, final_lr: 0.000025, final_superbatch: 239 },
+            second: lr::LinearDecayLR { initial_lr: 0.001, final_lr: 0.000025, final_superbatch: sbs - 1 },
             first_scheduler_final_superbatch: 1,
         },
         save_rate: 40,
