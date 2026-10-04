@@ -74,7 +74,7 @@ fn main() {
     }
     assert!(!paths.is_empty(), "Usage: wakwak [--name NAME] <data.wf> [more-data.wf ...]");
     let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
-    let inputs = DuckInputs;
+    let inputs = ChessBucketsMirrored::default();
     let loader = WakFormatLoader::new_concat_multiple(&paths, 1024, 4, |_, mv, _, _| !mv.flag().is_noisy());
     let mut trainer = ValueTrainerBuilder::default()
         .dual_perspective()
@@ -84,11 +84,19 @@ fn main() {
             SavedFormat::id("l0w").round().quantise::<i16>(Q0),
             SavedFormat::id("l0b").round().quantise::<i16>(Q0),
             SavedFormat::id("l1w")
-                .transform(|_, mut weights| {
-                    for weight in &mut weights {
+                .transform(|_, weights| {
+                    let mut permuted = vec![0.0; weights.len()];
+                    for i1 in (0..L1_SIZE).step_by(4) {
+                        for o in 0..L2_SIZE {
+                            for i2 in 0..4 {
+                                permuted[i1 * L2_SIZE + o * 4 + i2] = weights[(i1 + i2) * L2_SIZE + o];
+                            }
+                        }
+                    }
+                    for weight in &mut permuted {
                         *weight /= FT_SHIFT_SCALE * FT_SHIFT_SCALE;
                     }
-                    weights
+                    permuted
                 })
                 .round()
                 .quantise::<i8>(Q1),
@@ -102,7 +110,7 @@ fn main() {
         .build(|builder, stm_inputs, ntm_inputs| {
             let l0 = builder.new_affine("l0", inputs.num_inputs(), L1_SIZE);
             let l1 = builder.new_affine("l1", L1_SIZE, L2_SIZE);
-            let l2 = builder.new_affine("l2", L2_SIZE, L3_SIZE);
+            let l2 = builder.new_affine("l2", L2_SIZE * 2, L3_SIZE);
             let l3 = builder.new_affine("l3", L3_SIZE, 1);
 
             let ft = |input, start, end| l0.slice(start, end).forward(input).crelu();
@@ -110,7 +118,7 @@ fn main() {
             let ntm_hidden = ft(ntm_inputs, 0, L1_SIZE / 2) * ft(ntm_inputs, L1_SIZE / 2, L1_SIZE);
 
             let l1_out = l1.forward(stm_hidden.concat(ntm_hidden));
-            let l1_out = l1_out.screlu();
+            let l1_out = l1_out.concat(l1_out.abs_pow(2.0)).crelu();
 
             let l2_out = l2.forward(l1_out);
             let l2_out = l2_out.crelu();
@@ -126,7 +134,7 @@ fn main() {
     let sbs = 240;
 
     let schedule = TrainingSchedule {
-        net_id: net_id.unwrap_or_else(|| "lavash".to_string()),
+        net_id: net_id.unwrap_or_else(|| "shokupan".to_string()),
         eval_scale: SCALE,
         steps: TrainingSteps {
             batch_size: 16_384,
