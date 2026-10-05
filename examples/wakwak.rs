@@ -10,7 +10,7 @@ use bullet_lib::{
     value::{ValueTrainerBuilder, loader::WakFormatLoader},
 };
 
-const L1_SIZE: usize = 768;
+const L1_SIZE: usize = 1024;
 const L2_SIZE: usize = 16;
 const L3_SIZE: usize = 32;
 const SCALE: f32 = 300.0;
@@ -131,7 +131,7 @@ fn main() {
     let l1_clip = AdamWParams { max_weight: L1_RANGE, min_weight: -L1_RANGE, ..Default::default() };
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
 
-    let sbs = 240;
+    let sbs = 400;
 
     let schedule = TrainingSchedule {
         net_id: net_id.unwrap_or_else(|| "shokupan".to_string()),
