@@ -12,6 +12,7 @@ use bullet_lib::{
 
 const L1_SIZE: usize = 1024;
 const L2_SIZE: usize = 16;
+const L2_HIDDEN: usize = L2_SIZE - 1;
 const L3_SIZE: usize = 32;
 const SCALE: f32 = 300.0;
 const Q0: i16 = 255;
@@ -110,7 +111,7 @@ fn main() {
         .build(|builder, stm_inputs, ntm_inputs| {
             let l0 = builder.new_affine("l0", inputs.num_inputs(), L1_SIZE);
             let l1 = builder.new_affine("l1", L1_SIZE, L2_SIZE);
-            let l2 = builder.new_affine("l2", L2_SIZE * 2, L3_SIZE);
+            let l2 = builder.new_affine("l2", L2_HIDDEN * 2, L3_SIZE);
             let l3 = builder.new_affine("l3", L3_SIZE, 1);
 
             let ft = |input, start, end| l0.slice(start, end).forward(input).crelu();
@@ -118,6 +119,8 @@ fn main() {
             let ntm_hidden = ft(ntm_inputs, 0, L1_SIZE / 2) * ft(ntm_inputs, L1_SIZE / 2, L1_SIZE);
 
             let l1_out = l1.forward(stm_hidden.concat(ntm_hidden));
+            let skip = l1_out.slice_rows(L2_HIDDEN, L2_SIZE);
+            let l1_out = l1_out.slice_rows(0, L2_HIDDEN);
             let l1_out = l1_out.concat(l1_out.abs_pow(2.0)).crelu();
 
             let l2_out = l2.forward(l1_out);
@@ -125,7 +128,7 @@ fn main() {
 
             let l3_out = l3.forward(l2_out);
 
-            l3_out
+            l3_out + skip
         });
 
     let l1_clip = AdamWParams { max_weight: L1_RANGE, min_weight: -L1_RANGE, ..Default::default() };
@@ -134,7 +137,7 @@ fn main() {
     let sbs = 400;
 
     let schedule = TrainingSchedule {
-        net_id: net_id.unwrap_or_else(|| "shokupan".to_string()),
+        net_id: net_id.unwrap_or_else(|| "mantou".to_string()),
         eval_scale: SCALE,
         steps: TrainingSteps {
             batch_size: 16_384,
