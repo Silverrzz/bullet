@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     fs::File,
     io::BufReader,
     sync::mpsc::{self, Receiver, SyncSender},
@@ -168,13 +169,18 @@ fn convert_buffer(
 }
 
 fn parse_into_buffer(game: &[u8], buffer: &mut Vec<ChessBoard>, filter: &fn(&Board, Move, i16, f32) -> bool) {
+    let hmc = Cell::new(0);
     splat_to_bulletformat(
         game,
-        |board| {
+        |mut board| {
+            board.extra[1] = hmc.get();
             buffer.push(board);
             Ok(())
         },
-        filter,
+        |board, mv, score, result| {
+            hmc.set(board.hmc());
+            filter(board, mv, score, result)
+        },
     )
     .unwrap();
 }

@@ -21,17 +21,17 @@ def unpermute_dpbusd(net, l1, l2, offset):
 
 
 def perm_sparse(net, permutation, l1, l2, buckets):
-    l0w_size = 2 * buckets * 768 * l1
+    l0w_size = 2 * buckets * 843 * l1
     l0b_size = 2 * l1
     l1_offset = l0w_size + l0b_size
     l1w_size = l1 * l2
-    l0w = np.frombuffer(net, dtype="<i2", count=buckets * 768 * l1)
-    l0w = l0w.reshape(buckets, 12, 64, l1)
+    l0w = np.frombuffer(net, dtype="<i2", count=buckets * 843 * l1)
+    l0w = l0w.reshape(buckets, 843, l1)
     l0b = np.frombuffer(net, dtype="<i2", count=l1, offset=l0w_size)
     l1w = np.frombuffer(net, dtype=np.int8, count=l1w_size, offset=l1_offset)
     l1w = l1w.reshape(l1, l2)
     return (
-        l0w[:, :, :, permutation].tobytes()
+        l0w[:, :, permutation].tobytes()
         + l0b[permutation].tobytes()
         + l1w[permutation, :].tobytes()
         + net[l1_offset + l1w_size:]
@@ -51,13 +51,13 @@ def main():
     if l1 <= 0 or l1 % 4 or args.buckets <= 0:
         parser.error("L1 must be a positive multiple of four; buckets must be positive")
     net = args.net.read_bytes()
-    offset = 2 * (args.buckets * 768 + 1) * l1
+    offset = 2 * (args.buckets * 843 + 1) * l1
     candidates = [args.l2_size] if args.l2_size is not None else [16, 32]
     matching = []
     for l2 in candidates:
         if l2 <= 0:
             parser.error("L2 must be positive")
-        size = offset + l1 * l2 + 4 * l2 + 4 * 2 * l2 * 32 + 4 * 32 + 4 * 32 + 4
+        size = offset + l1 * l2 + 4 * l2 + 4 * 2 * (l2 - 1) * 32 + 4 * 32 + 4 * 32 + 4
         if len(net) == (size + 63) // 64 * 64:
             matching.append(l2)
     if len(matching) != 1:

@@ -30,11 +30,11 @@ impl SparseInputType for DuckInputs {
     type RequiredDataType = ChessBoard;
 
     fn num_inputs(&self) -> usize {
-        832
+        768 + 64 + 11
     }
 
     fn max_active(&self) -> usize {
-        33
+        34
     }
 
     fn map_features<F: FnMut(usize, usize)>(&self, pos: &ChessBoard, mut f: F) {
@@ -45,14 +45,18 @@ impl SparseInputType for DuckInputs {
             let ntm_flip = if pos.opp_ksq() % 8 > 3 { 7 } else { 0 };
             f(768 + (square ^ stm_flip), 768 + (square ^ 56 ^ ntm_flip));
         }
+        let hmc = usize::from(pos.extra()[1]).min(100);
+        let bucket = if hmc <= 5 { 0 } else { hmc.div_ceil(10) };
+        let index = 832 + bucket;
+        f(index, index);
     }
 
     fn shorthand(&self) -> String {
-        "832hm".to_string()
+        "843hm-hmc".to_string()
     }
 
     fn description(&self) -> String {
-        "Horizontally mirrored chess and duck inputs".to_string()
+        "Horizontally mirrored chess and duck inputs with 11 halfmove-clock buckets".to_string()
     }
 }
 
@@ -75,12 +79,11 @@ fn main() {
     }
     assert!(!paths.is_empty(), "Usage: wakwak [--name NAME] <data.wf> [more-data.wf ...]");
     let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
-    let inputs = ChessBucketsMirrored::default();
     let loader = WakFormatLoader::new_concat_multiple(&paths, 1024, 4, |_, mv, _, _| !mv.flag().is_noisy());
     let mut trainer = ValueTrainerBuilder::default()
         .dual_perspective()
         .optimiser(AdamW)
-        .inputs(inputs)
+        .inputs(DuckInputs)
         .save_format(&[
             SavedFormat::id("l0w").round().quantise::<i16>(Q0),
             SavedFormat::id("l0b").round().quantise::<i16>(Q0),
@@ -109,7 +112,7 @@ fn main() {
         ])
         .loss_fn(|output, target| output.sigmoid().squared_error(target))
         .build(|builder, stm_inputs, ntm_inputs| {
-            let l0 = builder.new_affine("l0", inputs.num_inputs(), L1_SIZE);
+            let l0 = builder.new_affine("l0", DuckInputs.num_inputs(), L1_SIZE);
             let l1 = builder.new_affine("l1", L1_SIZE, L2_SIZE);
             let l2 = builder.new_affine("l2", L2_HIDDEN * 2, L3_SIZE);
             let l3 = builder.new_affine("l3", L3_SIZE, 1);
@@ -123,12 +126,7 @@ fn main() {
             let l1_out = l1_out.slice_rows(0, L2_HIDDEN);
             let l1_out = l1_out.concat(l1_out.abs_pow(2.0)).crelu();
 
-            let l2_out = l2.forward(l1_out);
-            let l2_out = l2_out.crelu();
-
-            let l3_out = l3.forward(l2_out);
-
-            l3_out + skip
+            l3.forward(l2.forward(l1_out).crelu()) + skip
         });
 
     let l1_clip = AdamWParams { max_weight: L1_RANGE, min_weight: -L1_RANGE, ..Default::default() };
