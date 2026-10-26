@@ -10,7 +10,7 @@ use bullet_lib::{
     value::{ValueTrainerBuilder, loader::WakFormatLoader},
 };
 
-const L1_SIZE: usize = 1024;
+const L1_SIZE: usize = 1536;
 const L2_SIZE: usize = 16;
 const L2_HIDDEN: usize = L2_SIZE - 1;
 const L3_SIZE: usize = 32;
