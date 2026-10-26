@@ -132,7 +132,7 @@ fn main() {
     let l1_clip = AdamWParams { max_weight: L1_RANGE, min_weight: -L1_RANGE, ..Default::default() };
     trainer.optimiser.set_params_for_weight("l1w", l1_clip);
 
-    let sbs = 400;
+    let sbs = 670;
 
     let schedule = TrainingSchedule {
         net_id: net_id.unwrap_or_else(|| "mantou".to_string()),
